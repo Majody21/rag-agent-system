@@ -1,0 +1,62 @@
+[
+  {
+    "question": "How do I reset my password if I still have access to my MFA device?",
+    "expected_source": "it_password_reset.pdf",
+    "expected_keywords": ["login.acme.example", "Forgot password", "MFA", "5 minutes"]
+  },
+  {
+    "question": "What are the minimum password complexity requirements?",
+    "expected_source": "it_password_reset.pdf",
+    "expected_keywords": ["14 characters", "uppercase", "symbol", "last 10"]
+  },
+  {
+    "question": "I lost my MFA device and can't access my email. What do I do?",
+    "expected_source": "it_password_reset.pdf",
+    "expected_keywords": ["helpdesk", "manager", "video call"]
+  },
+  {
+    "question": "How long do I have to submit an expense for reimbursement?",
+    "expected_source": "finance_expense_policy.md",
+    "expected_keywords": ["30 calendar days", "Concur"]
+  },
+  {
+    "question": "What is the per diem for meals when traveling internationally?",
+    "expected_source": "finance_expense_policy.md",
+    "expected_keywords": ["$100"]
+  },
+  {
+    "question": "Can I expense first-class airfare?",
+    "expected_source": "finance_expense_policy.md",
+    "expected_keywords": ["not", "VP approval", "economy"]
+  },
+  {
+    "question": "Who approves an expense report for $10,000?",
+    "expected_source": "finance_expense_policy.md",
+    "expected_keywords": ["VP"]
+  },
+  {
+    "question": "What forms do I need to complete during my first week?",
+    "expected_source": "hr_onboarding.md",
+    "expected_keywords": ["W-4", "I-9", "direct deposit"]
+  },
+  {
+    "question": "How long do I have to enroll in benefits after my start date?",
+    "expected_source": "hr_onboarding.md",
+    "expected_keywords": ["30", "days"]
+  },
+  {
+    "question": "What training do I need to complete in my first 30 days?",
+    "expected_source": "hr_onboarding.md",
+    "expected_keywords": ["Security Awareness", "Data Privacy", "Harassment", "Code of Conduct"]
+  },
+  {
+    "question": "Who is Priya Rao's manager?",
+    "expected_source": "employees.csv",
+    "expected_keywords": ["Jordan Maxwell"]
+  },
+  {
+    "question": "Which employees work in the Finance department?",
+    "expected_source": "employees.csv",
+    "expected_keywords": ["Samuel Okafor", "Rita Delgado"]
+  }
+]

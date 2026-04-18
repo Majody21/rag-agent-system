@@ -1,0 +1,13 @@
+employee_id,name,department,title,manager,location,start_date,email
+E1001,Alex Chen,Engineering,Senior Software Engineer,Priya Rao,San Francisco,2021-03-15,alex.chen@acme.example
+E1002,Priya Rao,Engineering,Engineering Director,Jordan Maxwell,San Francisco,2019-07-01,priya.rao@acme.example
+E1003,Samuel Okafor,Finance,Financial Analyst,Rita Delgado,Chicago,2022-09-12,samuel.okafor@acme.example
+E1004,Rita Delgado,Finance,Finance Director,Jordan Maxwell,Chicago,2018-02-05,rita.delgado@acme.example
+E1005,Mei Tanaka,Product,Product Manager,Jordan Maxwell,Remote (NYC),2023-01-10,mei.tanaka@acme.example
+E1006,Darius Johnson,Engineering,Staff Software Engineer,Priya Rao,Remote (Austin),2020-06-22,darius.johnson@acme.example
+E1007,Helena Weiss,HR,HR Business Partner,Thomas Becker,Chicago,2021-11-03,helena.weiss@acme.example
+E1008,Thomas Becker,HR,VP People,Jordan Maxwell,San Francisco,2017-04-18,thomas.becker@acme.example
+E1009,Nadia Hassan,Data,Senior Data Analyst,Priya Rao,Remote (Boston),2022-05-30,nadia.hassan@acme.example
+E1010,Jordan Maxwell,Executive,Chief Operating Officer,Elena Vasquez,San Francisco,2016-01-12,jordan.maxwell@acme.example
+E1011,Elena Vasquez,Executive,Chief Executive Officer,,San Francisco,2015-08-01,elena.vasquez@acme.example
+E1012,Omar Khalil,IT,IT Security Lead,Thomas Becker,Remote (Dubai),2023-06-05,omar.khalil@acme.example
