@@ -1,8 +1,8 @@
 """
 Agent builder.
 
-Returns a LangChain `AgentExecutor` backed by Claude Sonnet, wired to the
-three tools in `tools.py`. Conversation memory is per-Session so multiple
+Returns a LangChain `AgentExecutor` backed by Claude, wired to the three
+tools in `tools.py`. Conversation memory is per-Session so multiple
 users / threads don't trample each other.
 """
 
@@ -16,24 +16,38 @@ try:
     from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 except ImportError:  # LangChain 0.x fallback
     from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_anthropic import ChatAnthropic
+from langchain_core.callbacks import get_usage_metadata_callback
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from config import AGENT_MAX_ITERATIONS, AGENT_MODEL, AGENT_TEMPERATURE, MEMORY_WINDOW, check_api_keys
+from config import AGENT_MAX_ITERATIONS, AGENT_MAX_TOKENS, AGENT_MODEL, MEMORY_WINDOW, check_llm_key
 from src.agent.prompts import SYSTEM_PROMPT
 from src.agent.tools import get_document_summary, list_documents, search_knowledge_base
 
 
-def _build_executor() -> AgentExecutor:
-    """Construct the agent + executor. Separate function for test injection."""
-    check_api_keys()
-    llm = ChatGoogleGenerativeAI(
-        model=AGENT_MODEL,
-        temperature=AGENT_TEMPERATURE,
-        max_output_tokens=2048,
-    )
-    tools = [search_knowledge_base, list_documents, get_document_summary]
+# Models that support server-side refusal fallbacks. On a policy decline the
+# API re-runs the same request on a fallback model inside the same call.
+_FALLBACK_MODELS = ("claude-opus-5", "claude-fable-5")
+
+
+def build_llm(model: str = AGENT_MODEL) -> ChatAnthropic:
+    """Claude chat model. Sampling params are omitted: current models reject them."""
+    check_llm_key()
+    kwargs: Dict[str, Any] = {}
+    if model.startswith(_FALLBACK_MODELS):
+        kwargs = {
+            "betas": ["server-side-fallback-2026-07-01"],
+            "model_kwargs": {"extra_body": {"fallbacks": "default"}},
+        }
+    return ChatAnthropic(model=model, max_tokens=AGENT_MAX_TOKENS, **kwargs)
+
+
+def _build_executor(tools: List[Any] | None = None) -> AgentExecutor:
+    """Construct the agent + executor. `tools` defaults to the in-process tools."""
+    llm = build_llm()
+    if tools is None:
+        tools = [search_knowledge_base, list_documents, get_document_summary]
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),
@@ -53,9 +67,9 @@ def _build_executor() -> AgentExecutor:
     )
 
 
-def build_agent() -> AgentExecutor:
+def build_agent(tools: List[Any] | None = None) -> AgentExecutor:
     """Public factory."""
-    return _build_executor()
+    return _build_executor(tools)
 
 
 @dataclass
@@ -81,9 +95,13 @@ class Session:
           - answer: str
           - sources: list[dict]  (retrieved docs across all tool calls)
           - tool_calls: list[str] (names of tools invoked)
+          - usage: dict  (input/output tokens per model, summed over the turn)
         """
-        result = self.executor.invoke({"input": question, "chat_history": self._history})
-        answer_text = _coerce_text(result["output"])
+        with get_usage_metadata_callback() as usage_cb:
+            result = self.executor.invoke({"input": question, "chat_history": self._history})
+        answer_text = _coerce_text(result["output"]) or (
+            "I couldn't produce an answer for that request. Try rephrasing it."
+        )
 
         # Update history (keep last N turns)
         self._history.append(HumanMessage(content=question))
@@ -104,6 +122,7 @@ class Session:
             "answer": answer_text,
             "sources": sources,
             "tool_calls": tool_calls,
+            "usage": dict(usage_cb.usage_metadata),
         }
 
 
@@ -111,9 +130,8 @@ def _coerce_text(output: Any) -> str:
     """
     Normalize an AgentExecutor `output` into a plain string.
 
-    Gemini (and other providers) can return content as a list of parts
-    (e.g. [{'type': 'text', 'text': '...'}, '...']) instead of a raw
-    string. Flatten that into clean text for the UI.
+    Claude returns content as a list of blocks (thinking, text, ...)
+    instead of a raw string. Keep only the text blocks for the UI.
     """
     if isinstance(output, str):
         return output
@@ -122,7 +140,7 @@ def _coerce_text(output: Any) -> str:
         for part in output:
             if isinstance(part, str):
                 pieces.append(part)
-            elif isinstance(part, dict):
+            elif isinstance(part, dict) and part.get("type", "text") == "text":
                 text = part.get("text")
                 if isinstance(text, str):
                     pieces.append(text)

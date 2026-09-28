@@ -1,5 +1,5 @@
 """
-Retrieval — thin wrapper over the Chroma vectorstore.
+Retrieval: thin wrapper over the vector store facade (Chroma or OpenSearch).
 
 Exposes two functions:
 - retrieve(query, k, filters) → List[Document]
@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.documents import Document
 
 from config import RETRIEVAL_K
-from src.vectorstore import get_vectorstore
+from src.vectorstore import similarity_search
 
 
 def retrieve(
@@ -28,9 +28,7 @@ def retrieve(
     Similarity search. Pass `filters={"source": "hr_onboarding.md"}` to
     restrict results to a specific document or filetype.
     """
-    vs = get_vectorstore()
-    # Chroma expects a `where` filter — pass through if provided.
-    return vs.similarity_search(query, k=k, filter=filters or None)
+    return similarity_search(query, k=k, filters=filters)
 
 
 def format_sources(docs: List[Document]) -> str:

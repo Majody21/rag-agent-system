@@ -17,7 +17,7 @@ from typing import Optional
 from langchain_core.tools import tool
 
 from src.retrieval import format_sources, retrieve
-from src.vectorstore import get_vectorstore, list_sources
+from src.vectorstore import get_source_chunks, list_sources
 
 
 @tool
@@ -61,23 +61,11 @@ def get_document_summary(source: str) -> str:
     Use this when the user asks for a summary or overview of a specific doc.
     Pass the exact filename (e.g. 'finance_expense_policy.md').
     """
-    vs = get_vectorstore()
     try:
-        result = vs._collection.get(where={"source": source}, include=["documents", "metadatas"])
+        chunks = get_source_chunks(source)
     except Exception as e:
         return f"Error fetching document '{source}': {e}"
-
-    texts = result.get("documents") or []
-    if not texts:
+    if not chunks:
         return f"No document named '{source}' is indexed. Use list_documents to see available names."
-
-    metas = result.get("metadatas") or []
-
-    # Sort by chunk_index so the summary reads in order
-    def _key(pair):
-        _, m = pair
-        return m.get("chunk_index", 0) if m else 0
-
-    pairs = sorted(zip(texts, metas), key=_key)
-    body = "\n\n".join(t for t, _ in pairs)
+    body = "\n\n".join(c.page_content for c in chunks)
     return f"[full contents of {source}]\n\n{body}"

@@ -27,3 +27,6 @@ Thumbs.db
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Re-index manifest (per machine)
+.index_manifest.json

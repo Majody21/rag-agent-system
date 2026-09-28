@@ -1,5 +1,5 @@
 """
-RAGAS-style evaluation — no heavy RAGAS dependency.
+RAGAS-style evaluation with no heavy RAGAS dependency.
 
 We score each Q/A pair along two axes via Claude-as-judge:
   - faithfulness : is the answer grounded in the retrieved sources?
@@ -21,10 +21,10 @@ from statistics import mean
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from langchain_google_genai import ChatGoogleGenerativeAI  # noqa: E402
 from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 
-from config import AGENT_MODEL, EVAL_DIR, check_api_keys  # noqa: E402
+from config import EVAL_DIR, JUDGE_MODEL  # noqa: E402
+from src.agent.agent import build_llm  # noqa: E402
 from src.pipeline import Session  # noqa: E402
 
 
@@ -68,9 +68,8 @@ Return JSON only."""
 
 
 def _judge(prompt: str) -> float:
-    llm = ChatGoogleGenerativeAI(model=AGENT_MODEL, temperature=0.0, max_output_tokens=256)
-    resp = llm.invoke([SystemMessage(content=JUDGE_SYSTEM), HumanMessage(content=prompt)])
-    text = resp.content if isinstance(resp.content, str) else str(resp.content)
+    resp = build_llm(JUDGE_MODEL).invoke([SystemMessage(content=JUDGE_SYSTEM), HumanMessage(content=prompt)])
+    text = resp.text
     # Be liberal: find the first {...} blob
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
@@ -82,7 +81,6 @@ def _judge(prompt: str) -> float:
 
 
 def main() -> int:
-    check_api_keys()
     qa_path = EVAL_DIR / "qa_pairs.json"
     if not qa_path.exists():
         print(f"ERROR: {qa_path} not found. Create it or run ingestion first.", file=sys.stderr)

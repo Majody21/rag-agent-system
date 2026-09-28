@@ -1,3 +1,21 @@
-from .store import get_vectorstore, add_chunks, reset_store, list_sources
+from .store import (
+    add_chunks,
+    delete_source,
+    get_backend,
+    get_source_chunks,
+    get_vectorstore,
+    list_sources,
+    reset_store,
+    similarity_search,
+)
 
-__all__ = ["get_vectorstore", "add_chunks", "reset_store", "list_sources"]
+__all__ = [
+    "add_chunks",
+    "delete_source",
+    "get_backend",
+    "get_source_chunks",
+    "get_vectorstore",
+    "list_sources",
+    "reset_store",
+    "similarity_search",
+]

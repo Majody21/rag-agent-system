@@ -20,6 +20,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.pipeline import Session, ingest_file  # noqa: E402
+from config import AGENT_MODEL, VECTOR_BACKEND  # noqa: E402
 from src.vectorstore import list_sources, reset_store  # noqa: E402
 
 
@@ -66,7 +67,7 @@ def _get_session() -> Session:
 # ─── Sidebar ─────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🧠 Knowledge Agent")
-    st.caption("LangChain · Claude Sonnet · ChromaDB")
+    st.caption(f"LangChain · {AGENT_MODEL} · {'OpenSearch Serverless' if VECTOR_BACKEND == 'opensearch' else 'ChromaDB'}")
 
     st.divider()
 
