@@ -70,6 +70,8 @@
 }
 .st-key-examples button:hover { border-color: var(--ka-mint); background: var(--ka-raised); transform: translateY(-2px); }
 .st-key-examples button p { font-size: 0.95rem; line-height: 1.45; color: var(--ka-text); text-align: left; }
+/* Newer Streamlit clips button labels to one line; example cards need to wrap */
+.st-key-examples button, .st-key-examples button * { white-space: normal !important; text-overflow: clip !important; overflow: visible !important; }
 .st-key-examples [data-testid="stColumn"] button::before {
   display: block; margin-bottom: 8px; font-family: var(--ka-mono); font-size: 0.64rem;
   letter-spacing: 0.08em; color: var(--ka-mint);

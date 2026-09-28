@@ -20,9 +20,9 @@ borderColor = "#1E2530"
 showWidgetBorder = true
 baseRadius = "10px"
 baseFontSize = 16
-font = "Lora:https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap, Georgia, serif"
-headingFont = "Syne:https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&display=swap, sans-serif"
-codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap, monospace"
+font = "Lora:https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+headingFont = "Syne:https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&display=swap"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
 
 [theme.sidebar]
 backgroundColor = "#0A0D14"
