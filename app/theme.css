@@ -152,7 +152,12 @@
 [data-testid="stChatInput"] { border-radius: 14px; }
 [data-testid="stChatInput"] > div { background: var(--ka-card); border-color: var(--ka-line-2); border-radius: 14px; }
 [data-testid="stChatInput"]:focus-within > div { border-color: var(--ka-mint); box-shadow: 0 0 0 3px rgba(0, 232, 170, 0.12); }
-[data-testid="stChatInputTextArea"] { font-size: 1rem; }
+/* Size the box to its text. If Streamlit measures the textarea before the web
+   fonts load it can switch to its multi-line layout and pin an empty box at
+   max height; this keeps it one line when empty and lets it grow as you type. */
+[data-testid="stChatInputTextArea"] {
+  font-size: 1rem; field-sizing: content; height: auto !important; min-height: 1.7em; max-height: 12rem;
+}
 
 /* ─── Buttons ────────────────────────────────────────── */
 [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-secondary"] {
