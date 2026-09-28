@@ -4,5 +4,27 @@ maxUploadSize = 1          # MB; the demo also enforces DEMO_MAX_UPLOAD_BYTES
 [browser]
 gatherUsageStats = false
 
+[client]
+toolbarMode = "minimal"    # hide developer menu items for visitors
+
+# Matches the portfolio at abdultaboo.netlify.app: ink background, mint accent,
+# Syne headings, Lora body, JetBrains Mono for code and labels.
 [theme]
 base = "dark"
+primaryColor = "#00E8AA"
+backgroundColor = "#07090E"
+secondaryBackgroundColor = "#0F141D"
+textColor = "#E4DFD6"
+linkColor = "#00E8AA"
+borderColor = "#1E2530"
+showWidgetBorder = true
+baseRadius = "10px"
+baseFontSize = 16
+font = "Lora:https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap, Georgia, serif"
+headingFont = "Syne:https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&display=swap, sans-serif"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap, monospace"
+
+[theme.sidebar]
+backgroundColor = "#0A0D14"
+secondaryBackgroundColor = "#0F141D"
+borderColor = "#1E2530"

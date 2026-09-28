@@ -7,7 +7,8 @@ Features:
 - Chat with multi-turn memory (persists across reruns via st.session_state).
 - Sidebar: upload documents (indexed through the MCP ingest_document tool),
   list indexed docs, clear the conversation.
-- Citations render as chips under each answer, plus the MCP tools the agent called.
+- Citations render as chips under each answer, with an expandable trace of the
+  MCP tool calls behind it. Styling lives in app/theme.css.
 
 Public demo (DEMO_MODE=true): per-session and daily question limits, upload
 size and count limits, uploads expire after 30 minutes, and API keys come
@@ -17,6 +18,7 @@ from Streamlit secrets on the server. See app/demo_limits.py.
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import sys
@@ -64,24 +66,11 @@ EXAMPLE_QUESTIONS = [
 
 
 # ─── Page config ─────────────────────────────────────────────────────
-st.set_page_config(page_title="RAG Knowledge Agent", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Knowledge Agent | RAG over MCP", page_icon=":material/travel_explore:", layout="wide")
+st.html(f"<style>{(ROOT / 'app' / 'theme.css').read_text(encoding='utf-8')}</style>")
 
-st.markdown(
-    """
-<style>
-.stApp { background: #0c1016; }
-.block-container { padding-top: 2rem; max-width: 900px; }
-h1, h2, h3 { color: #dddad2; letter-spacing: -0.02em; }
-.stChatMessage { background: #141923; border: 1px solid rgba(255,255,255,0.06);
-                 border-radius: 12px; padding: 0.5rem 1rem; }
-.source-chip { display: inline-block; font-family: 'JetBrains Mono', monospace;
-               font-size: 0.7rem; padding: 3px 10px; margin: 2px;
-               background: rgba(0,232,170,0.12); border: 1px solid rgba(0,232,170,0.3);
-               border-radius: 100px; color: #00E8AA; letter-spacing: 0.04em; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+USER_AVATAR = ":material/person:"
+AGENT_AVATAR = ":material/travel_explore:"
 
 
 # ─── Process-wide resources (shared by every visitor) ────────────────
@@ -146,41 +135,116 @@ def _safe_upload_name(name: str) -> str:
     return f"upload_{base}" if DEMO_MODE else base
 
 
+# ─── Small render helpers ────────────────────────────────────────────
+def _ext_badge(name: str) -> str:
+    ext = Path(name).suffix.lower().lstrip(".")
+    return {"markdown": "MD"}.get(ext, ext.upper()[:4] or "DOC")
+
+
+def _render_citations(sources: list[dict]) -> None:
+    """Sources grouped by document: each file once, then the pages or sections cited.
+
+    Built from what retrieval returned, not from the model's text.
+    """
+    groups: dict[str, list[str]] = {}
+    for src in sources:
+        name = src.get("source", "?")
+        where = f"p.{src['page']}" if src.get("page") else src.get("section", "")
+        locs = groups.setdefault(name, [])
+        if where and where not in locs:
+            locs.append(where)
+    if not groups:
+        return
+    rows = []
+    for name, locs in groups.items():
+        # Pages in numeric order; sections keep retrieval order
+        locs.sort(key=lambda l: int(l[2:]) if l.startswith("p.") and l[2:].isdigit() else 10**6)
+        # File names can come from uploads, so escape everything before rendering as HTML
+        pills = "".join(f"<span class='ka-loc'>{html.escape(l)}</span>" for l in locs)
+        rows.append(
+            f"<div class='ka-cite'><b>{_ext_badge(name)}</b><span class='ka-file'>{html.escape(name)}</span>{pills}</div>"
+        )
+    st.html(f"<div class='ka-cites' role='list' aria-label='Sources'>{''.join(rows)}</div>")
+
+
+def _render_trace(tool_trace: list[dict], sources: list[dict]) -> None:
+    """Expandable list of the MCP tool calls behind an answer."""
+    if not tool_trace:
+        return
+    n = len(tool_trace)
+    rows = []
+    for call in tool_trace:
+        args = call.get("input")
+        args_txt = json.dumps(args, ensure_ascii=False) if isinstance(args, dict) and args else ""
+        rows.append(
+            f"<div class='row'><span class='tag'>mcp &rarr;</span><span><b>{html.escape(call.get('tool', '?'))}</b> "
+            f"<span class='args'>{html.escape(args_txt)}</span></span></div>"
+        )
+    if sources:
+        docs = len({s.get("source") for s in sources})
+        rows.append(
+            f"<div class='row'><span class='tag'>mcp &larr;</span><span>{len(sources)} passages from "
+            f"{docs} document{'s' if docs != 1 else ''}</span></div>"
+        )
+    with st.expander(f"Retrieval trace · {n} MCP call{'s' if n != 1 else ''}", icon=":material/account_tree:"):
+        st.html(f"<div class='ka-trace'>{''.join(rows)}</div>")
+
+
+def _render_answer_meta(msg: dict) -> None:
+    _render_citations(msg.get("sources", []))
+    _render_trace(msg.get("tool_trace", []), msg.get("sources", []))
+
+
+def _render_user_text(text: str) -> None:
+    st.html(f"<div class='ka-user-mark'>{html.escape(text)}</div>")
+
+
+def _meter_html() -> str:
+    left = max(0, LIMITS.questions_per_session - st.session_state.usage.questions)
+    pct = 100 * left / max(1, LIMITS.questions_per_session)
+    return (
+        f"<div class='ka-meter'>{left} of {LIMITS.questions_per_session} questions left this session"
+        f"<div class='bar'><i style='width:{pct:.0f}%'></i></div></div>"
+    )
+
+
 # ─── Sidebar ─────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🧠 Knowledge Agent")
     backend = "OpenSearch Serverless" if VECTOR_BACKEND == "opensearch" else "ChromaDB"
-    st.caption(f"LangChain · {AGENT_MODEL} · MCP · {backend}")
-    st.markdown(f"[Source code]({REPO_URL}) · [Project page]({PROJECT_URL})")
+    st.html(
+        f"<div class='ka-brand'><div class='ka-mark' aria-hidden='true'></div><div>"
+        f"<div class='ka-brand-name'>Knowledge Agent</div>"
+        f"<div class='ka-brand-sub'>RAG · Claude · MCP</div></div></div>"
+    )
 
-    st.divider()
-    st.markdown("### 📚 Indexed Documents")
     sources = list_sources()
-    if sources:
-        for s in sources:
-            st.markdown(f"<div class='source-chip'>{html.escape(s)}</div>", unsafe_allow_html=True)
-    else:
-        st.info("No documents indexed yet. Upload some below or run the ingest script.")
+    rows = "".join(
+        f"<div class='ka-doc{' up' if s.startswith('upload_') else ''}'><b>{_ext_badge(s)}</b>{html.escape(s)}</div>"
+        for s in sources
+    ) or "<p class='ka-hint'>Nothing indexed yet. Upload a document below.</p>"
+    st.html(
+        f"<div class='ka-side-label'>Indexed documents <span>{len(sources)}</span></div>"
+        f"<div class='ka-docs'>{rows}</div>"
+    )
 
-    st.divider()
-    st.markdown("### ⬆️ Upload Documents")
+    st.html("<div class='ka-side-label'>Add a document</div>")
     if DEMO_MODE:
-        st.caption(
-            f"Public demo: uploads are visible to other visitors and deleted after "
-            f"{max(1, LIMITS.upload_ttl_seconds // 60)} min. Upload only public, non-sensitive files "
-            f"(max {LIMITS.max_upload_bytes // 1000} KB)."
+        st.html(
+            f"<p class='ka-hint'>Uploads are visible to other visitors and removed after "
+            f"{max(1, LIMITS.upload_ttl_seconds // 60)} min. Public, non-sensitive files only, "
+            f"up to {LIMITS.max_upload_bytes // 1000} KB.</p>"
         )
     uploaded = st.file_uploader(
-        "Drop PDF, Markdown, or CSV files",
+        "Upload PDF, Markdown, CSV, or TXT files",
         type=["pdf", "md", "markdown", "csv", "txt"],
         accept_multiple_files=True,
         label_visibility="collapsed",
     )
-    if uploaded and st.button("Ingest uploaded files", type="primary"):
+    if uploaded and st.button("Index uploaded files", type="primary", icon=":material/upload_file:", use_container_width=True):
         upload_dir = docs_dir() / UPLOADS_SUBDIR
         upload_dir.mkdir(parents=True, exist_ok=True)
         reports = []
-        with st.spinner("Indexing through MCP ingest_document..."):
+        with st.spinner("Indexing through the MCP ingest_document tool..."):
             for uf in uploaded:
                 name = _safe_upload_name(uf.name)
                 data = uf.getvalue()
@@ -203,91 +267,95 @@ with st.sidebar:
         st.session_state.flash = "\n\n".join(reports)
         st.rerun()
     if st.session_state.flash:
-        st.info(st.session_state.flash)
+        st.info(st.session_state.flash, icon=":material/check_circle:")
         st.session_state.flash = None
 
-    st.divider()
-    if st.button("🧹 Clear chat", use_container_width=True):
+    st.html("<div class='ka-side-label'>Session</div>")
+    if st.button("New conversation", icon=":material/restart_alt:", use_container_width=True):
         st.session_state.messages = []
         if st.session_state.session is not None:
             st.session_state.session.reset()
         st.rerun()
-
-
-# ─── Main chat area ──────────────────────────────────────────────────
-st.markdown("# AI Agent & RAG")
-st.caption(
-    "Ask questions about the indexed documents. The agent retrieves passages through MCP "
-    "tools and cites every claim."
-)
-if DEMO_MODE:
-    st.info(
-        f"Public demo on fictional sample documents for a made-up company (Acme). "
-        f"Limit: {LIMITS.questions_per_session} questions per session."
+    st.html(
+        f"<div class='ka-links'><a href='{REPO_URL}' target='_blank' rel='noopener'>Source code &#8599;</a>"
+        f"<a href='{PROJECT_URL}' target='_blank' rel='noopener'>Case study &#8599;</a></div>"
     )
 
 
-def _render_meta(sources: list[dict], tool_calls: list[str]) -> None:
-    """Citation chips (one per distinct passage location) and the MCP tools used."""
-    chips, seen = "", set()
-    for src in sources:
-        tag = src.get("source", "?")
-        if src.get("page"):
-            tag += f" · p.{src['page']}"
-        elif src.get("section"):
-            tag += f" · {src['section']}"
-        if tag in seen:
-            continue
-        seen.add(tag)
-        # File names come from uploads, so escape before rendering as HTML
-        chips += f"<span class='source-chip'>{html.escape(tag)}</span>"
-    if chips:
-        st.markdown(f"<div style='margin-top:8px'>{chips}</div>", unsafe_allow_html=True)
-    if tool_calls:
-        st.caption("MCP tools called: " + ", ".join(tool_calls))
+# ─── Main: hero ──────────────────────────────────────────────────────
+st.html(
+    f"<div class='ka-status'><span class='ka-live'><i class='ka-dot' aria-hidden='true'></i>Online</span>"
+    f"<span>{html.escape(AGENT_MODEL)}</span><span>MCP tools</span><span>{backend}</span></div>"
+    f"<h1 class='ka-title'>Ask the <span>knowledge base</span></h1>"
+    f"<p class='ka-sub'>Answers come only from the indexed documents, with the file and page behind every "
+    f"claim. Open the retrieval trace under an answer to see the MCP tool calls.</p>"
+)
+meter_slot = st.empty()
 
 
+def _render_notice() -> None:
+    if DEMO_MODE:
+        meter_slot.html(
+            f"<div class='ka-notice'><span>Public demo on fictional documents for a made-up company.</span>"
+            f"{_meter_html()}</div>"
+        )
+
+
+_render_notice()
+
+# ─── Main: conversation ──────────────────────────────────────────────
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        _render_meta(msg.get("sources", []), msg.get("tool_calls", []))
+    with st.chat_message(msg["role"], avatar=USER_AVATAR if msg["role"] == "user" else AGENT_AVATAR):
+        if msg["role"] == "user":
+            _render_user_text(msg["content"])
+        else:
+            st.markdown(msg["content"])
+            _render_answer_meta(msg)
 
 prompt = None
+examples_slot = st.empty()
 if not st.session_state.messages:
-    cols = st.columns(len(EXAMPLE_QUESTIONS))
-    for col, example in zip(cols, EXAMPLE_QUESTIONS):
-        if col.button(example, use_container_width=True):
-            prompt = example
-prompt = st.chat_input("Ask about company policies, procedures, or documents…") or prompt
+    with examples_slot.container(key="examples"):
+        st.html("<div class='ka-label'>Try a question</div>")
+        cols = st.columns(len(EXAMPLE_QUESTIONS))
+        for col, example in zip(cols, EXAMPLE_QUESTIONS):
+            if col.button(example, use_container_width=True):
+                prompt = example
+prompt = st.chat_input("Ask about company policies, procedures, or documents") or prompt
+if prompt:
+    examples_slot.empty()
 
 if prompt:
     refusal = (
         check_question(prompt, st.session_state.usage, _daily_counter(), LIMITS) if DEMO_MODE else None
     )
     if refusal:
-        st.warning(refusal)
-        st.stop()
+        st.warning(refusal, icon=":material/hourglass_top:")
+    else:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user", avatar=USER_AVATAR):
+            _render_user_text(prompt)
 
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        placeholder = st.empty()
-        placeholder.markdown("_thinking…_")
-        try:
-            result = _get_session().ask(prompt)
-        except Exception as e:
-            placeholder.error(f"Error: {e}")
-            st.stop()
-
-        placeholder.markdown(result["answer"])
-        _render_meta(result["sources"], result["tool_calls"])
-        st.session_state.messages.append(
-            {
+        with st.chat_message("assistant", avatar=AGENT_AVATAR):
+            placeholder = st.empty()
+            placeholder.html(
+                "<div class='ka-thinking'><span class='ka-dots' aria-hidden='true'><i></i><i></i><i></i></span>"
+                "Searching the documents through MCP</div>"
+            )
+            try:
+                result = _get_session().ask(prompt)
+            except Exception as e:
+                placeholder.error(f"Something went wrong: {e}", icon=":material/error:")
+                st.stop()
+            placeholder.markdown(result["answer"])
+            msg = {
                 "role": "assistant",
                 "content": result["answer"],
                 "sources": result["sources"],
                 "tool_calls": result["tool_calls"],
+                "tool_trace": result.get("tool_trace", []),
             }
-        )
+            _render_answer_meta(msg)
+            st.session_state.messages.append(msg)
+
+_render_notice()
