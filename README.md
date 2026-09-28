@@ -1,301 +1,288 @@
 # AI Agent & RAG Automation System
 
-A production-grade Retrieval-Augmented Generation (RAG) agent for enterprise
-knowledge bases. Ingests PDFs, Markdown, and CSV files; embeds them into a
-local vector store; and answers natural-language questions through a
-conversational LangChain agent that **cites its sources** and **refuses to
-hallucinate when retrieval turns up empty**.
+A retrieval-augmented generation (RAG) agent for internal knowledge bases.
+It ingests PDFs, Markdown, and CSV files, chunks and embeds them into a
+vector store, and answers questions through a conversational Claude agent
+that cites the exact passages it used and says so when the documents do
+not contain the answer.
 
-Built by [Abdulmajeed Taboo](https://www.linkedin.com/in/abdultaboo/) —
-AI-Proficient Data & Business Analyst based in Chicago, IL.
+Built by [Abdulmajeed Taboo](https://www.linkedin.com/in/abdultaboo/).
+Project page: [abdultaboo.netlify.app](https://abdultaboo.netlify.app)
 
----
+## What it does
 
-## The Problem
-
-Enterprise teams waste hours manually searching through internal documentation,
-SOPs, and knowledge bases to answer routine questions — leading to slow
-onboarding, inconsistent answers, and lost productivity.
-
-## What It Does
-
-- **Ingests** documents in multiple formats (PDF, Markdown, CSV, TXT) with
-  format-aware loaders that preserve structural metadata (page numbers for
-  PDFs, section headings for Markdown, row numbers for CSVs).
-- **Chunks** intelligently using `RecursiveCharacterTextSplitter` with
-  overlap to preserve context across chunk boundaries.
-- **Embeds** with Google `text-embedding-004` (1536 dims) into a
-  persistent ChromaDB store. Ingestion is **idempotent** — re-ingesting a
-  file won't create duplicates.
-- **Answers** through a tool-calling Claude Sonnet agent with three tools:
-  `search_knowledge_base`, `list_documents`, `get_document_summary`.
-- **Remembers** conversation history via a sliding window, supporting
-  multi-turn Q&A ("what if that doesn't work?").
-- **Cites every claim** with `[source: filename]` tags surfaced to the UI
-  as expandable chips.
-
-## Outcome
-
-Reduces average internal query resolution from ~15 minutes of manual
-searching to **under 30 seconds of AI-assisted retrieval** — applicable to
-healthcare operations, finance teams, and IT help desks.
+- **Ingests** PDF (one document per page), Markdown (one per heading
+  section), CSV (one per row), and TXT, keeping page, section, and row
+  numbers as metadata.
+- **Chunks** with LangChain's `RecursiveCharacterTextSplitter`
+  (1000 characters, 150 overlap).
+- **Embeds** with Google `gemini-embedding-001` into a vector store:
+  local ChromaDB by default, or an **AWS OpenSearch Serverless** vector
+  collection with `VECTOR_BACKEND=opensearch`.
+- **Answers** through a LangChain tool-calling agent on the **Claude API**
+  (`claude-opus-5` by default, set with `AGENT_MODEL`).
+- **Cites** every claim with `[source: file, page N]` tags, shown in the UI
+  as chips built from what retrieval actually returned.
+- **Remembers** the last 5 turns per session for follow-up questions.
+- **Uploads** new documents from the Streamlit sidebar.
+- **Re-indexes automatically**: a watcher re-ingests new or edited files
+  and removes deleted ones, without re-embedding unchanged files.
 
 ---
 
 ## Architecture
 
+![Architecture diagram](docs/architecture.svg)
+
+The same diagram as Mermaid source (also in
+[`docs/architecture.mmd`](docs/architecture.mmd)).
+
+> Build status: the MCP server and MCP client shown here are being added in
+> the next commit. Until then the agent calls the same tools in-process.
+
+```mermaid
+flowchart TB
+    UI["`**Streamlit UI**
+    chat + document upload`"]
+    CLI["`**CLI**
+    terminal chat`"]
+    CD["`**Claude Desktop**
+    any MCP host`"]
+
+    subgraph AGENT["Agent process"]
+        SES["`**Session memory**
+        last 5 turns`"]
+        AG["`**LangChain agent**
+        tool calling`"]
+        MCPC["`**MCP client**
+        langchain-mcp-adapters`"]
+    end
+
+    LLM(["`**Claude API**
+    claude-opus-5`"])
+
+    MCPS["`**MCP server** (stdio)
+    search_documents
+    ingest_document
+    list_sources
+    get_document`"]
+
+    subgraph INGEST["Ingestion pipeline"]
+        LD["`**Loaders**
+        PDF page, MD section, CSV row`"]
+        CH["`**Chunker**
+        1000 chars, 150 overlap`"]
+        HID["`**Chunk IDs**
+        source + sha1 of text`"]
+        EMB(["`**Embeddings**
+        gemini-embedding-001`"])
+    end
+
+    DOCS[/"`**Documents folder**`"/]
+    RW["`**Re-index watcher**
+    sha1 manifest per file`"]
+
+    VS[("`**Vector store**
+    ChromaDB local, or
+    OpenSearch Serverless`")]
+
+    UI -- question --> SES
+    CLI -- question --> SES
+    SES --> AG
+    LLM <-- "messages, tool calls, cited answer" --> AG
+    AG --> MCPC
+    MCPC <-- "MCP over stdio" --> MCPS
+    CD <-- "MCP over stdio" --> MCPS
+    MCPS <-- "search: top-k chunks with source, page, chunk tags" --> VS
+    MCPS -- ingest_document --> LD
+    UI -- upload --> LD
+    DOCS --> RW
+    RW -- "new or changed files" --> LD
+    RW -. "deleted files" .-> VS
+    LD --> CH --> HID --> EMB -- "upsert (replaces old chunks)" --> VS
 ```
-           ┌──────────────────────────────────────────────┐
-           │              Streamlit UI / CLI              │
-           └─────────────────┬────────────────────────────┘
-                             │
-                ┌────────────▼─────────────┐
-                │   LangChain Tool Agent   │◄──── Google Gemini 2.5 Flash
-                │    (windowed memory)     │
-                └────────────┬─────────────┘
-                             │  tool call
-                ┌────────────▼─────────────┐
-                │    Retriever (Chroma)    │
-                │  top-k + metadata filter │
-                └────────────┬─────────────┘
-                             │
-        ┌────────────────────▼────────────────────┐
-        │           Vector Store (Chroma)         │
-        │  embeddings: OpenAI text-embedding-3-s  │
-        └────────────────────▲────────────────────┘
-                             │
-        ┌────────────────────┴────────────────────┐
-        │   Ingestion Pipeline                    │
-        │   PDF / MD / CSV loaders → chunker →    │
-        │   embedder → upsert (content-hash IDs)  │
-        └─────────────────────────────────────────┘
-```
+
+**Request path.** A question goes into the session (which adds the last 5
+turns), then to the LangChain agent. The agent sends the conversation and
+its tool list to Claude. When Claude asks for a tool, the agent's MCP client
+calls the MCP server, which embeds the query, pulls the top 4 chunks from
+the vector store, and returns them with their citation tags. Claude writes
+the answer from those passages only, with inline source tags, and the UI
+turns the tags into citation chips.
+
+**Ingestion path.** Uploads, the `ingest_document` MCP tool, and the
+re-index watcher all call the same `ingest_file` function: load, chunk,
+hash, embed, and upsert. Before upserting, the file's old chunks are deleted
+so an edited document can never be cited in its old form.
+
+---
+
+## Design decisions
+
+### Why this vector store
+
+The code talks to one small interface (`add_chunks`, `similarity_search`,
+`list_sources`, `get_source_chunks`, `delete_source`, `reset_store` in
+[`src/vectorstore/store.py`](src/vectorstore/store.py)) with two backends
+behind it:
+
+- **ChromaDB** for local development and the demo: no infrastructure, no
+  cost, one folder on disk.
+- **AWS OpenSearch Serverless** for an AWS deployment
+  ([`opensearch_backend.py`](src/vectorstore/opensearch_backend.py)):
+  managed, IAM-authenticated (SigV4), no cluster to size, and it combines
+  k-NN vector search with metadata filters and keyword search in one engine,
+  which is the path to hybrid retrieval later. It targets **NextGen**
+  vector collections, which accept our own document IDs (so re-ingestion
+  stays idempotent) and scale to zero when idle.
+
+Tradeoffs considered: pgvector on RDS is cheaper at small scale but is a
+database you run and tune yourself; Pinecone is simple but lives outside
+the AWS account and its IAM controls; Bedrock Knowledge Bases hides chunking
+and citation metadata that this project wants to control. OpenSearch
+Serverless Classic collections also bill a minimum OCU floor even when idle
+(see the cost model), which is why the demo runs on Chroma.
+
+### Chunk size and overlap
+
+Loaders split on document structure first (PDF page, Markdown heading, CSV
+row), so most chunks are one complete section. Only sections longer than
+1000 characters (about 250 tokens) are split further, preferring paragraph,
+then line, then sentence boundaries. On the sample documents this gives 42
+chunks averaging about 370 characters.
+
+- **1000 characters** keeps each passage about one idea, so the top 4
+  results are precise and the retrieved context stays near 1,000 tokens per
+  search, which keeps Claude input cost low.
+- **150 characters of overlap (15%)** means a sentence that straddles a
+  split point still appears whole in at least one chunk.
+- Tradeoff: small chunks can lose surrounding context. For questions about
+  a whole document the agent has a `get_document` tool that returns every
+  chunk of one file in order.
+
+### How citations stay tied to source passages
+
+1. Metadata is attached at load time (file name, page, section heading,
+   row) and copied onto every chunk along with a `chunk_index`.
+2. It is stored next to the vector, so every search hit comes back with it.
+3. The retriever prints each passage under a header such as
+   `[source=it_password_reset.pdf, page=2, chunk=4]`, so the model sees
+   exactly which file and page each sentence came from.
+4. The system prompt requires an inline `[source: ...]` tag per claim,
+   forbids citing anything not retrieved in the current turn, and requires
+   "I couldn't find that in the company knowledge base" when retrieval is
+   empty.
+5. The UI builds citation chips by parsing the **tool output**, not the
+   model's prose, so a chip always points at a passage that was actually
+   retrieved.
+6. Chunk IDs are `source::sha1(text)`, and re-ingesting a file deletes its
+   old chunks first, so no citation can point at text that has since
+   changed.
+
+Remaining risk: the model can still attach a tag to the wrong retrieved
+passage. `scripts/evaluate.py` scores faithfulness with an LLM judge to
+measure this. Claude's native Citations feature (document blocks with
+character-level spans) is the next step if stricter guarantees are needed.
+
+### Other tradeoffs
+
+- **An agent instead of a fixed retrieve-then-answer chain.** Claude picks
+  between search, listing documents, and reading a whole document. This
+  handles "what documents do you have?" and summaries well, but costs one
+  extra model round trip per tool call.
+- **Sliding-window memory (5 turns)** keeps follow-ups like "what if that
+  doesn't work?" working while capping input tokens per question.
+- **Gemini embeddings on the free tier** cost nothing but are limited to
+  100 embedding requests per minute, which caps how fast large uploads can
+  be indexed. A paid tier or a different embedding model removes the limit.
 
 ---
 
 ## Quickstart
 
-### 1. Install
-
 ```bash
-git clone <this-repo>
+git clone https://github.com/Majody21/rag-agent-system.git
 cd rag-agent-system
 python -m venv .venv
-# Windows:   .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
+# Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env    # then add ANTHROPIC_API_KEY and GOOGLE_API_KEY
 ```
 
-### 2. Configure API keys
-
-```bash
-cp .env.example .env
-# then edit .env and fill in:
-#   GOOGLE_API_KEY=AIzaSy...   (free key: https://aistudio.google.com/app/apikey)
-```
-
-### 3. Generate the sample PDF (one-time)
-
-```bash
-python scripts/generate_sample_pdf.py
-```
-
-This converts `data/sample_docs/it_password_reset_source.md` into a real PDF
-so the PDF loader has something to chew on.
-
-### 4. Ingest the sample documents
+Ingest the sample documents and ask questions:
 
 ```bash
 python scripts/ingest.py --src data/sample_docs
+python -m app.cli                      # terminal chat
+streamlit run app/streamlit_app.py     # web UI with upload
 ```
 
-Expected output:
-
-```
-Ingested 47 chunks from 4 file(s) in 3.2s
-```
-
-### 5. Ask questions
-
-**CLI:**
+Automated re-indexing (watches a folder, re-indexes only what changed):
 
 ```bash
-python -m app.cli
+python scripts/reindex.py --src data/sample_docs --watch --interval 30
 ```
 
-```
-you ▸ How do I reset my password?
-agent ▸ To reset your password when you still have MFA access, go to
-https://login.acme.example and click "Forgot password?" … [source: it_password_reset.pdf, p.1]
-
-you ▸ What if I've also lost my MFA device?
-agent ▸ If you've lost your MFA device but can still access your email … [source: it_password_reset.pdf, p.2]
-```
-
-**Streamlit UI:**
+Full rebuild after changing the embedding model or chunk size:
 
 ```bash
-streamlit run app/streamlit_app.py
+python scripts/reindex.py --src data/sample_docs --full --yes
 ```
 
-The UI includes a sidebar for uploading new documents on the fly, live
-citation chips under each answer, and controls to clear chat / reset the
-entire index.
+### Using AWS OpenSearch Serverless instead of Chroma
 
-### 6. Evaluate
+1. In the AWS console, create a **vector search** collection with Express
+   Create (NextGen). Give your IAM user or role a data access policy for
+   the collection.
+2. `pip install -r requirements-aws.txt` and run `aws configure` (keys stay
+   in `~/.aws`, never in this repo).
+3. In `.env` set `VECTOR_BACKEND=opensearch`,
+   `OPENSEARCH_ENDPOINT=https://<id>.<region>.aoss.amazonaws.com`, and
+   `AWS_REGION`.
+4. Run `python scripts/ingest.py --src data/sample_docs`. The index and
+   its k-NN mapping are created on first write.
+
+Status: the OpenSearch adapter is covered by offline tests against a fake
+client (`tests/test_opensearch_backend.py`). It has not yet been run against
+a live AWS collection.
+
+## Tests
+
+```bash
+pytest -m "not live"   # offline: fake embeddings, no keys, no network
+pytest -m live         # real Claude + embeddings, uses a temp store
+```
+
+## Evaluation
 
 ```bash
 python scripts/evaluate.py
 ```
 
-Runs the agent against `eval/qa_pairs.json` (12 Q/A pairs keyed to the
-sample docs) and scores each with Claude-as-judge on two axes:
-**faithfulness** (answer grounded in sources) and **relevance** (answer
-addresses the question). Averages are printed at the end.
+Runs the agent on 12 question and answer pairs in `eval/qa_pairs.json` and
+scores each answer with a Claude judge for faithfulness (grounded in the
+retrieved sources) and relevance.
 
-### 7. Test
-
-```bash
-pytest -v
-```
-
-Unit tests run with no API keys required. Integration tests (marked
-`live`) auto-run when `GOOGLE_API_KEY` is present.
-
----
-
-## Project Layout
+## Project layout
 
 ```
 rag-agent-system/
-├── README.md
-├── requirements.txt
-├── config.py                    # All tunable knobs
-│
+├── config.py                  # all settings, read from .env
 ├── src/
-│   ├── ingestion/               # PDF / MD / CSV loaders + chunker
-│   ├── vectorstore/             # Chroma wrapper with content-hash dedup
-│   ├── retrieval/               # Retriever + citation formatter
-│   ├── agent/                   # Tools, prompts, AgentExecutor, Session
-│   └── pipeline.py              # High-level convenience API
-│
-├── app/
-│   ├── cli.py                   # Interactive terminal REPL
-│   └── streamlit_app.py         # Web chat UI
-│
-├── scripts/
-│   ├── ingest.py                # Bulk ingest
-│   ├── reindex.py               # Wipe + re-ingest
-│   ├── evaluate.py              # RAGAS-style eval
-│   └── generate_sample_pdf.py   # Build the sample PDF
-│
-├── data/sample_docs/            # 4 realistic enterprise docs for demo
-│   ├── hr_onboarding.md
-│   ├── it_password_reset.pdf
-│   ├── finance_expense_policy.md
-│   └── employees.csv
-│
-├── eval/qa_pairs.json           # 12 Q/A test pairs
-└── tests/                       # pytest
+│   ├── ingestion/             # loaders + chunker
+│   ├── vectorstore/           # store facade, Chroma + OpenSearch backends
+│   ├── retrieval/             # retriever + citation formatter
+│   ├── agent/                 # Claude agent, tools, prompt, Session
+│   └── pipeline.py            # ingest_file, ingest_directory, sync_directory
+├── app/                       # Streamlit UI and CLI
+├── scripts/                   # ingest, reindex (--watch), evaluate
+├── docs/                      # architecture diagram (.mmd + .svg)
+├── data/sample_docs/          # 4 fictional company documents
+├── eval/qa_pairs.json
+└── tests/
 ```
-
----
-
-## Key Design Decisions
-
-1. **Citations are non-negotiable.** The system prompt
-   (`src/agent/prompts.py`) explicitly instructs Claude to (a) always call
-   the retrieval tool before answering a factual question, (b) refuse when
-   retrieval returns nothing, and (c) cite sources inline.
-
-2. **Idempotent ingestion via content-hash IDs.** Re-running ingestion on
-   the same corpus does not create duplicate vectors. The ID for each
-   chunk is `{source}::{sha1(content)[:16]}`.
-
-3. **Multi-tool agent, not a single retrieval chain.** The agent chooses
-   between `search_knowledge_base`, `list_documents`, and
-   `get_document_summary` based on the user's intent — demonstrates real
-   agent reasoning, not just retrieval-then-generate.
-
-4. **Metadata-rich chunks** enable filtered retrieval. Each chunk carries
-   `{source, filetype, chunk_index, page?, section_heading?, row?}`. The
-   agent's search tool accepts an optional `source_filter` so the user can
-   say "in the HR handbook, how does…" and get filtered results.
-
-5. **Sliding-window memory** (`MEMORY_WINDOW = 5` turn pairs) keeps
-   multi-turn context cheap. Follow-ups like "what if that doesn't work?"
-   resolve correctly without blowing up tokens.
-
----
-
-## Deployment to AWS
-
-The current implementation runs locally. To deploy to AWS:
-
-### Architecture sketch
-
-```
-      Users ──HTTPS──► CloudFront ──► ALB ──► ECS Fargate (Streamlit)
-                                                   │
-                                                   ▼
-                                          ┌────────────────────┐
-                                          │   AWS Bedrock      │
-                                          │   (Claude Sonnet)  │
-                                          └────────────────────┘
-                                                   │
-                         ┌─────────────────────────┘
-                         ▼
-                ┌────────────────────────┐
-                │  OpenSearch Serverless │◄──── ingestion Lambda
-                │   (vector collection)  │        (S3 PUT trigger)
-                └────────────────────────┘
-                         ▲
-                         │
-                    S3 raw/   ◄── internal docs uploaded here
-```
-
-### Mapping from this codebase to AWS
-
-| Local component | AWS equivalent | Notes |
-|---|---|---|
-| `ChatGoogleGenerativeAI` | `langchain-aws.ChatBedrock` | Drop-in swap in `src/agent/agent.py`; set `model_id="anthropic.claude-sonnet-4-5-v1:0"` or keep Gemini via Vertex AI |
-| `GoogleGenerativeAIEmbeddings` | `langchain-aws.BedrockEmbeddings` | Use Titan Text Embeddings v2 (1024 dims) — rebuild the index |
-| `Chroma` | `langchain-community.OpenSearchVectorSearch` | Enable OpenSearch Serverless collection w/ `vector` type |
-| `scripts/ingest.py` | Lambda triggered on S3 `PUT` | `data/sample_docs/` → `s3://acme-kb-raw/` |
-| `app/streamlit_app.py` | ECS Fargate service behind ALB | Single `Dockerfile`; one-container service |
-| `.env` | AWS Secrets Manager | Pulled at container start |
-
-### Why not deployed already?
-
-This repo focuses on the core retrieval quality and agent reasoning. AWS
-deployment is mechanical (swap provider classes, containerize, wire IAM)
-but adds no algorithmic insight. Live deployment is a planned extension.
-
----
-
-## Roadmap
-
-- [ ] **Hybrid retrieval** (BM25 + dense) with Reciprocal Rank Fusion —
-      will lift precision on keyword-heavy queries (employee IDs, form
-      numbers) without sacrificing semantic recall.
-- [ ] **Cross-encoder reranker** on top-20 candidates before sending top-4
-      to the LLM — expected faithfulness lift of 5-10 pts on the eval set.
-- [ ] **Multi-agent orchestration** — specialist agents for HR / IT /
-      Finance, with a router agent dispatching queries. Currently in
-      prototype.
-- [ ] **AWS Bedrock deployment** (see above) — containerize + Terraform
-      module.
-- [ ] **Observability** — structured logging of retrievals + LLM calls,
-      plus a small admin dashboard for retrieval hit rates.
-
----
-
-## License
-
-MIT. See [LICENSE](LICENSE) if included.
 
 ## Contact
 
-**Abdulmajeed Taboo** — [majodytbo08@gmail.com](mailto:majodytbo08@gmail.com)
-· [LinkedIn](https://www.linkedin.com/in/abdultaboo/)
-· [Portfolio](https://abdultaboo.netlify.app)
+Abdulmajeed Taboo · [LinkedIn](https://www.linkedin.com/in/abdultaboo/) ·
+[Portfolio](https://abdultaboo.netlify.app)

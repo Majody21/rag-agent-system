@@ -1,0 +1,59 @@
+flowchart TB
+    UI["`**Streamlit UI**
+    chat + document upload`"]
+    CLI["`**CLI**
+    terminal chat`"]
+    CD["`**Claude Desktop**
+    any MCP host`"]
+
+    subgraph AGENT["Agent process"]
+        SES["`**Session memory**
+        last 5 turns`"]
+        AG["`**LangChain agent**
+        tool calling`"]
+        MCPC["`**MCP client**
+        langchain-mcp-adapters`"]
+    end
+
+    LLM(["`**Claude API**
+    claude-opus-5`"])
+
+    MCPS["`**MCP server** (stdio)
+    search_documents
+    ingest_document
+    list_sources
+    get_document`"]
+
+    subgraph INGEST["Ingestion pipeline"]
+        LD["`**Loaders**
+        PDF page, MD section, CSV row`"]
+        CH["`**Chunker**
+        1000 chars, 150 overlap`"]
+        HID["`**Chunk IDs**
+        source + sha1 of text`"]
+        EMB(["`**Embeddings**
+        gemini-embedding-001`"])
+    end
+
+    DOCS[/"`**Documents folder**`"/]
+    RW["`**Re-index watcher**
+    sha1 manifest per file`"]
+
+    VS[("`**Vector store**
+    ChromaDB local, or
+    OpenSearch Serverless`")]
+
+    UI -- question --> SES
+    CLI -- question --> SES
+    SES --> AG
+    LLM <-- "messages, tool calls, cited answer" --> AG
+    AG --> MCPC
+    MCPC <-- "MCP over stdio" --> MCPS
+    CD <-- "MCP over stdio" --> MCPS
+    MCPS <-- "search: top-k chunks with source, page, chunk tags" --> VS
+    MCPS -- ingest_document --> LD
+    UI -- upload --> LD
+    DOCS --> RW
+    RW -- "new or changed files" --> LD
+    RW -. "deleted files" .-> VS
+    LD --> CH --> HID --> EMB -- "upsert (replaces old chunks)" --> VS

@@ -17,7 +17,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-SRC = Path(__file__).resolve().parent.parent / "data" / "sample_docs" / "it_password_reset_source.md"
+SRC = Path(__file__).resolve().parent.parent / "data" / "pdf_sources" / "it_password_reset_source.md"
 OUT = Path(__file__).resolve().parent.parent / "data" / "sample_docs" / "it_password_reset.pdf"
 
 
