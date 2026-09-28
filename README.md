@@ -7,7 +7,8 @@ that cites the exact passages it used and says so when the documents do
 not contain the answer.
 
 Built by [Abdulmajeed Taboo](https://www.linkedin.com/in/abdultaboo/).
-Project page: [abdultaboo.netlify.app](https://abdultaboo.netlify.app)
+Project page with architecture, MCP, cost model, and live demo:
+[abdultaboo.netlify.app/rag-agent](https://abdultaboo.netlify.app/rag-agent/)
 
 ## What it does
 
