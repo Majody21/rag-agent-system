@@ -46,13 +46,13 @@ flowchart TB
     UI -- question --> SES
     CLI -- question --> SES
     SES --> AG
-    LLM <-- "messages, tool calls, cited answer" --> AG
+    LLM <-- "prompts, tool calls, answers" --> AG
     AG --> MCPC
     MCPC <-- "MCP over stdio" --> MCPS
     CD <-- "MCP over stdio" --> MCPS
     MCPS <-- "search: top-k chunks with source, page, chunk tags" --> VS
     MCPS -- ingest_document --> LD
-    UI -- upload --> LD
+    UI -- upload --> MCPC
     DOCS --> RW
     RW -- "new or changed files" --> LD
     RW -. "deleted files" .-> VS

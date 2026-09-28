@@ -4,9 +4,9 @@ Interactive CLI for the RAG agent.
     python -m app.cli
 
 Commands:
-    /reset   — clear conversation memory
-    /docs    — list indexed documents
-    /quit    — exit
+    /reset   clear conversation memory
+    /docs    list indexed documents
+    /quit    exit
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.pipeline import Session  # noqa: E402
-from src.vectorstore import list_sources  # noqa: E402
+from src.agent.mcp_client import get_toolbox, list_sources  # noqa: E402
+
 
 
 # ANSI colors (safe on modern Windows terminals and *nix)
@@ -31,7 +32,7 @@ RESET = "\033[0m"
 
 def _banner() -> None:
     print(f"{BOLD}{CYAN}┌────────────────────────────────────────────┐{RESET}")
-    print(f"{BOLD}{CYAN}│  AI Agent & RAG — Enterprise Knowledge Q&A │{RESET}")
+    print(f"{BOLD}{CYAN}│  AI Agent & RAG: Enterprise Knowledge Q&A  │{RESET}")
     print(f"{BOLD}{CYAN}└────────────────────────────────────────────┘{RESET}")
     sources = list_sources()
     if sources:

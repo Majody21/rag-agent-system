@@ -1,9 +1,10 @@
 """
 Agent builder.
 
-Returns a LangChain `AgentExecutor` backed by Claude, wired to the three
-tools in `tools.py`. Conversation memory is per-Session so multiple
-users / threads don't trample each other.
+Returns a LangChain `AgentExecutor` backed by Claude. Its tools come from
+the MCP server (search_documents, list_sources, get_document) through the
+MCP client in `mcp_client.py`; the agent never imports retrieval code.
+Conversation memory is per-Session so multiple users don't trample each other.
 """
 
 from __future__ import annotations
@@ -17,13 +18,13 @@ try:
 except ImportError:  # LangChain 0.x fallback
     from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_anthropic import ChatAnthropic
-from langchain_core.callbacks import get_usage_metadata_callback
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from config import AGENT_MAX_ITERATIONS, AGENT_MAX_TOKENS, AGENT_MODEL, MEMORY_WINDOW, check_llm_key
 from src.agent.prompts import SYSTEM_PROMPT
-from src.agent.tools import get_document_summary, list_documents, search_knowledge_base
+from src.agent.mcp_client import get_toolbox
 
 
 # Models that support server-side refusal fallbacks. On a policy decline the
@@ -44,10 +45,10 @@ def build_llm(model: str = AGENT_MODEL) -> ChatAnthropic:
 
 
 def _build_executor(tools: List[Any] | None = None) -> AgentExecutor:
-    """Construct the agent + executor. `tools` defaults to the in-process tools."""
+    """Construct the agent + executor. `tools` defaults to the MCP server's read tools."""
     llm = build_llm()
     if tools is None:
-        tools = [search_knowledge_base, list_documents, get_document_summary]
+        tools = get_toolbox().agent_tools
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),
@@ -95,10 +96,19 @@ class Session:
           - answer: str
           - sources: list[dict]  (retrieved docs across all tool calls)
           - tool_calls: list[str] (names of tools invoked)
+          - tool_trace: list[dict] (each MCP tool call with its arguments)
           - usage: dict  (input/output tokens per model, summed over the turn)
         """
-        with get_usage_metadata_callback() as usage_cb:
-            result = self.executor.invoke({"input": question, "chat_history": self._history})
+        # MCP tools are async and live on the toolbox's event loop, so the
+        # whole agent turn runs there.
+        usage_cb = UsageMetadataCallbackHandler()
+        result = get_toolbox().run(
+            self.executor.ainvoke(
+                {"input": question, "chat_history": self._history},
+                config={"callbacks": [usage_cb]},
+            ),
+            timeout=600,
+        )
         answer_text = _coerce_text(result["output"]) or (
             "I couldn't produce an answer for that request. Try rephrasing it."
         )
@@ -112,26 +122,29 @@ class Session:
 
         # Extract sources and tool names from intermediate steps
         tool_calls: List[str] = []
+        tool_trace: List[Dict[str, Any]] = []
         sources: List[Dict[str, Any]] = []
         for action, observation in result.get("intermediate_steps", []):
             tool_calls.append(getattr(action, "tool", "?"))
-            if getattr(action, "tool", None) == "search_knowledge_base":
-                sources.extend(_parse_source_tags(str(observation)))
+            tool_trace.append({"tool": getattr(action, "tool", "?"), "input": getattr(action, "tool_input", None)})
+            if getattr(action, "tool", None) == "search_documents":
+                sources.extend(_parse_source_tags(_coerce_text(observation)))
 
         return {
             "answer": answer_text,
             "sources": sources,
             "tool_calls": tool_calls,
+            "tool_trace": tool_trace,
             "usage": dict(usage_cb.usage_metadata),
         }
 
 
 def _coerce_text(output: Any) -> str:
     """
-    Normalize an AgentExecutor `output` into a plain string.
+    Normalize model output or an MCP tool result into a plain string.
 
-    Claude returns content as a list of blocks (thinking, text, ...)
-    instead of a raw string. Keep only the text blocks for the UI.
+    Claude and MCP tools both return content as a list of blocks
+    (thinking, text, ...) instead of a raw string. Keep only the text.
     """
     if isinstance(output, str):
         return output
@@ -151,7 +164,7 @@ def _coerce_text(output: Any) -> str:
 def _parse_source_tags(blob: str) -> List[Dict[str, Any]]:
     """
     Parse the bracketed source tags from a retrieval output blob into
-    structured dicts — used by the UI to render citations.
+    structured dicts, used by the UI to render citations.
     """
     import re
 

@@ -1,0 +1,41 @@
+MCP server  : mcp_server.py over stdio
+Server tools: ['search_documents', 'list_sources', 'get_document', 'ingest_document']
+Agent tools : ['search_documents', 'list_sources', 'get_document'] (read-only subset)
+Model       : claude-opus-5
+
+QUESTION: How do I reset my password if I lost my MFA device?
+
+MCP tool call 1: search_documents({"query": "password reset lost MFA device"})
+MCP tool call 2: search_documents({"query": "MFA token replacement enrollment procedure"})
+
+Citations returned by search_documents:
+  [source=it_password_reset.pdf, page=1, chunk=1]
+  [source=it_password_reset.pdf, page=3, chunk=4]
+  [source=it_password_reset.pdf, page=2, chunk=2]
+  [source=it_password_reset.pdf, page=3, chunk=5]
+  [source=it_password_reset.pdf, page=4, chunk=6]
+
+ANSWER (11.6s):
+**Recovery when locked out of MFA** — if you've lost your MFA device and can't access email [source: it_password_reset.pdf, page 2]:
+
+- From a different device, go to `https://help.acme.example/recovery`
+- Click **Account recovery — no MFA access**
+- Enter your Acme email and employee ID (found on your badge)
+- Answer the three security questions you set during onboarding
+- If successful, a one-time recovery link is sent to your backup email on file
+- Then create a new password meeting the complexity rules (min. 14 characters, upper + lower + number + symbol, no reuse of last 10 passwords, no name/username, no dictionary words) [source: it_password_reset.pdf, page 2]
+
+**If you also don't have your badge** (no access to any Acme system) [source: it_password_reset.pdf, page 3]:
+
+- Contact your manager directly via personal phone
+- Your manager opens a **P1 ticket** with IT Security on your behalf
+- Visit an Acme office and present government-issued photo ID to an IT administrator for in-person verification
+- IT then resets your account and schedules a new MFA enrollment session
+- Typical turnaround: **4–24 hours**, depending on office availability
+
+**Notes**
+- IT will never ask for your password — don't share it with anyone [source: it_password_reset.pdf, page 3]
+- If unresolved within 2 business days, escalate to your IT Business Partner (intranet → IT > Business Partners) [source: it_password_reset.pdf, page 3]
+- Related: **IT-SOP-002: MFA Enrollment** covers re-enrolling your new device [source: it_password_reset.pdf, page 4]
+
+Tokens: 5203 in, 682 out

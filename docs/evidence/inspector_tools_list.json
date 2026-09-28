@@ -1,0 +1,133 @@
+{
+  "tools": [
+    {
+      "name": "search_documents",
+      "description": "Search the knowledge base and return the most relevant passages.\n\n    Each passage starts with a tag like [source=it_password_reset.pdf, page=2, chunk=4]\n    that identifies exactly where it came from. Cite those tags in answers.\n\n    Args:\n        query: A focused, keyword-rich search query, e.g. \"password reset procedure\".\n        source_filter: Optional file name (e.g. \"hr_onboarding.md\") to search only that document.\n        k: Number of passages to return (1-10).\n    ",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "source_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Filter"
+          },
+          "k": {
+            "default": 4,
+            "title": "K",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "search_documentsArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "search_documentsOutput"
+      }
+    },
+    {
+      "name": "list_sources",
+      "description": "List the file names of every document currently indexed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "title": "list_sourcesArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "list_sourcesOutput"
+      }
+    },
+    {
+      "name": "get_document",
+      "description": "Return every chunk of one indexed document, in order, for summaries or overviews.\n\n    Args:\n        source: Exact file name as shown by list_sources, e.g. \"finance_expense_policy.md\".\n    ",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "get_documentArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "get_documentOutput"
+      }
+    },
+    {
+      "name": "ingest_document",
+      "description": "Index (or re-index) one document so it becomes searchable.\n\n    Re-ingesting a file replaces its previous chunks. Supported types: PDF,\n    Markdown, CSV, TXT. The file must be inside the documents folder.\n\n    Args:\n        path: File path, relative to the documents folder or absolute inside it.\n    ",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ingest_documentArguments"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "ingest_documentOutput"
+      }
+    }
+  ]
+}

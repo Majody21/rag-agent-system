@@ -5,23 +5,25 @@ Streamlit chat UI for the RAG agent.
 
 Features:
 - Chat with multi-turn memory (persists across reruns via st.session_state).
-- Sidebar: upload documents for live ingestion, list indexed docs, reset memory.
-- Citations render as expandable chips under each answer.
+- Sidebar: upload documents (indexed through the MCP ingest_document tool),
+  list indexed docs, clear the conversation.
+- Citations render as chips under each answer, plus the MCP tools the agent called.
 """
 
 from __future__ import annotations
 
+import html
 import sys
-import tempfile
 from pathlib import Path
 
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.pipeline import Session, ingest_file  # noqa: E402
-from config import AGENT_MODEL, VECTOR_BACKEND  # noqa: E402
-from src.vectorstore import list_sources, reset_store  # noqa: E402
+from config import AGENT_MODEL, UPLOADS_SUBDIR, VECTOR_BACKEND, docs_dir  # noqa: E402
+from src.agent.mcp_client import get_toolbox, list_sources  # noqa: E402
+from src.pipeline import Session  # noqa: E402
+
 
 
 # ─── Page config ─────────────────────────────────────────────────────
@@ -75,7 +77,7 @@ with st.sidebar:
     sources = list_sources()
     if sources:
         for s in sources:
-            st.markdown(f"<div class='source-chip'>{s}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='source-chip'>{html.escape(s)}</div>", unsafe_allow_html=True)
     else:
         st.info("No documents indexed yet. Upload some below or run the ingest script.")
 
@@ -89,40 +91,23 @@ with st.sidebar:
         label_visibility="collapsed",
     )
     if uploaded and st.button("Ingest uploaded files", type="primary"):
-        with st.spinner("Indexing..."):
-            total = 0
+        upload_dir = docs_dir() / UPLOADS_SUBDIR
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        with st.spinner("Indexing through MCP ingest_document..."):
+            reports = []
             for uf in uploaded:
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=Path(uf.name).suffix
-                ) as tmp:
-                    tmp.write(uf.read())
-                    tmp_path = Path(tmp.name)
-                # Rename so metadata preserves real filename
-                final_path = tmp_path.with_name(uf.name)
-                tmp_path.rename(final_path)
-                try:
-                    result = ingest_file(final_path)
-                    total += result["chunks"]
-                finally:
-                    try:
-                        final_path.unlink()
-                    except OSError:
-                        pass
-        st.success(f"Ingested {total} chunks from {len(uploaded)} file(s).")
+                target = upload_dir / Path(uf.name).name
+                target.write_bytes(uf.getvalue())
+                reports.append(get_toolbox().call("ingest_document", path=f"{UPLOADS_SUBDIR}/{target.name}"))
+        st.success("\n\n".join(reports))
         st.rerun()
 
     st.divider()
 
-    col1, col2 = st.columns(2)
-    if col1.button("🧹 Clear chat", use_container_width=True):
+    if st.button("🧹 Clear chat", use_container_width=True):
         st.session_state.messages = []
         if st.session_state.session is not None:
             st.session_state.session.reset()
-        st.rerun()
-    if col2.button("🗑️ Reset index", use_container_width=True):
-        reset_store()
-        st.session_state.messages = []
-        st.session_state.session = None
         st.rerun()
 
 
@@ -130,24 +115,31 @@ with st.sidebar:
 st.markdown("# AI Agent & RAG")
 st.caption("Ask questions about your internal documents. Answers are grounded in retrieved sources with citations.")
 
+def _render_meta(sources: list[dict], tool_calls: list[str]) -> None:
+    """Citation chips (one per distinct passage location) and the MCP tools used."""
+    chips, seen = "", set()
+    for src in sources:
+        tag = src.get("source", "?")
+        if src.get("page"):
+            tag += f" · p.{src['page']}"
+        elif src.get("section"):
+            tag += f" · {src['section']}"
+        if tag in seen:
+            continue
+        seen.add(tag)
+        # File names come from uploads, so escape before rendering as HTML
+        chips += f"<span class='source-chip'>{html.escape(tag)}</span>"
+    if chips:
+        st.markdown(f"<div style='margin-top:8px'>{chips}</div>", unsafe_allow_html=True)
+    if tool_calls:
+        st.caption("MCP tools called: " + ", ".join(tool_calls))
+
+
 # Render history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        if msg.get("sources"):
-            chips = ""
-            seen: set[tuple] = set()
-            for s in msg["sources"]:
-                key = (s.get("source"), s.get("page"), s.get("chunk"))
-                if key in seen:
-                    continue
-                seen.add(key)
-                tag = s.get("source", "?")
-                if s.get("page"):
-                    tag += f" · p.{s['page']}"
-                chips += f"<span class='source-chip'>{tag}</span>"
-            if chips:
-                st.markdown(f"<div style='margin-top:8px'>{chips}</div>", unsafe_allow_html=True)
+        _render_meta(msg.get("sources", []), msg.get("tool_calls", []))
 
 # Input
 prompt = st.chat_input("Ask about company policies, procedures, or documents…")
@@ -166,21 +158,13 @@ if prompt:
             st.stop()
 
         placeholder.markdown(result["answer"])
-        if result["sources"]:
-            chips = ""
-            seen: set[tuple] = set()
-            for s in result["sources"]:
-                key = (s.get("source"), s.get("page"), s.get("chunk"))
-                if key in seen:
-                    continue
-                seen.add(key)
-                tag = s.get("source", "?")
-                if s.get("page"):
-                    tag += f" · p.{s['page']}"
-                chips += f"<span class='source-chip'>{tag}</span>"
-            if chips:
-                st.markdown(f"<div style='margin-top:8px'>{chips}</div>", unsafe_allow_html=True)
+        _render_meta(result["sources"], result["tool_calls"])
 
         st.session_state.messages.append(
-            {"role": "assistant", "content": result["answer"], "sources": result["sources"]}
+            {
+                "role": "assistant",
+                "content": result["answer"],
+                "sources": result["sources"],
+                "tool_calls": result["tool_calls"],
+            }
         )

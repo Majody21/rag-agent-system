@@ -1,0 +1,12 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Indexed documents (4):\n- employees.csv\n- finance_expense_policy.md\n- hr_onboarding.md\n- it_password_reset.pdf"
+    }
+  ],
+  "structuredContent": {
+    "result": "Indexed documents (4):\n- employees.csv\n- finance_expense_policy.md\n- hr_onboarding.md\n- it_password_reset.pdf"
+  },
+  "isError": false
+}

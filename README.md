@@ -21,6 +21,9 @@ Project page: [abdultaboo.netlify.app](https://abdultaboo.netlify.app)
   collection with `VECTOR_BACKEND=opensearch`.
 - **Answers** through a LangChain tool-calling agent on the **Claude API**
   (`claude-opus-5` by default, set with `AGENT_MODEL`).
+- **Exposes its tools over MCP** (Model Context Protocol): the agent gets
+  `search_documents`, `list_sources`, and `get_document` from an MCP server
+  through an MCP client, and the same server plugs into Claude Desktop.
 - **Cites** every claim with `[source: file, page N]` tags, shown in the UI
   as chips built from what retrieval actually returned.
 - **Remembers** the last 5 turns per session for follow-up questions.
@@ -36,9 +39,6 @@ Project page: [abdultaboo.netlify.app](https://abdultaboo.netlify.app)
 
 The same diagram as Mermaid source (also in
 [`docs/architecture.mmd`](docs/architecture.mmd)).
-
-> Build status: the MCP server and MCP client shown here are being added in
-> the next commit. Until then the agent calls the same tools in-process.
 
 ```mermaid
 flowchart TB
@@ -89,13 +89,13 @@ flowchart TB
     UI -- question --> SES
     CLI -- question --> SES
     SES --> AG
-    LLM <-- "messages, tool calls, cited answer" --> AG
+    LLM <-- "prompts, tool calls, answers" --> AG
     AG --> MCPC
     MCPC <-- "MCP over stdio" --> MCPS
     CD <-- "MCP over stdio" --> MCPS
     MCPS <-- "search: top-k chunks with source, page, chunk tags" --> VS
     MCPS -- ingest_document --> LD
-    UI -- upload --> LD
+    UI -- upload --> MCPC
     DOCS --> RW
     RW -- "new or changed files" --> LD
     RW -. "deleted files" .-> VS
@@ -110,9 +110,9 @@ the vector store, and returns them with their citation tags. Claude writes
 the answer from those passages only, with inline source tags, and the UI
 turns the tags into citation chips.
 
-**Ingestion path.** Uploads, the `ingest_document` MCP tool, and the
-re-index watcher all call the same `ingest_file` function: load, chunk,
-hash, embed, and upsert. Before upserting, the file's old chunks are deleted
+**Ingestion path.** Streamlit uploads go through the `ingest_document` MCP
+tool, and the re-index watcher calls the same `ingest_file` function: load,
+chunk, hash, embed, and upsert. Before upserting, the file's old chunks are deleted
 so an edited document can never be cited in its old form.
 
 ---
@@ -195,6 +195,109 @@ character-level spans) is the next step if stricter guarantees are needed.
 - **Gemini embeddings on the free tier** cost nothing but are limited to
   100 embedding requests per minute, which caps how fast large uploads can
   be indexed. A paid tier or a different embedding model removes the limit.
+
+---
+
+## MCP integration
+
+The retrieval layer is an MCP server built with the official
+[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+([`src/mcp_server.py`](src/mcp_server.py)). The LangChain agent is an MCP
+client ([`src/agent/mcp_client.py`](src/agent/mcp_client.py)): it launches
+the server over stdio, loads its tools with
+[`langchain-mcp-adapters`](https://github.com/langchain-ai/langchain-mcp-adapters),
+and never imports the retrieval code directly.
+
+| Tool | What it does | Given to the chat agent |
+|---|---|---|
+| `search_documents(query, source_filter?, k?)` | Top-k passages, each tagged `[source=..., page=..., chunk=...]` | Yes |
+| `list_sources()` | File names currently indexed | Yes |
+| `get_document(source)` | Every chunk of one file, in order | Yes |
+| `ingest_document(path)` | Index or re-index a file inside `data/` | No (MCP hosts and the upload UI only) |
+
+Design choices:
+
+- **The MCP server is the only process that touches the vector store.** The
+  agent, the Streamlit upload, and Claude Desktop all go through it, so there
+  is one writer and one place to add auth, logging, or rate limits.
+- **Least privilege.** The chat agent gets the three read tools only. Text
+  planted inside a document cannot make it index new files.
+- **Path sandbox.** `ingest_document` only accepts supported file types
+  inside `RAG_DOCS_DIR` (default `data/`), so a model cannot be talked into
+  indexing `.env` or other files on the machine.
+- **One long-lived session.** MCP tools are async and tied to the event loop
+  that opened the session, so the client runs that loop on a background
+  thread and the synchronous UI submits work to it. The server starts once
+  per app process, not once per question.
+
+### Proof it works end to end
+
+```bash
+python scripts/demo_mcp_e2e.py "How do I reset my password if I lost my MFA device?"
+```
+
+Output from a real run (full text in
+[`docs/evidence/mcp_e2e_run.txt`](docs/evidence/mcp_e2e_run.txt)):
+
+```
+Server tools: ['search_documents', 'list_sources', 'get_document', 'ingest_document']
+Agent tools : ['search_documents', 'list_sources', 'get_document'] (read-only subset)
+MCP tool call 1: search_documents({"query": "password reset lost MFA device"})
+MCP tool call 2: search_documents({"query": "MFA token replacement enrollment procedure"})
+Citations returned by search_documents:
+  [source=it_password_reset.pdf, page=1, chunk=1]
+  [source=it_password_reset.pdf, page=2, chunk=2]
+  ...
+ANSWER: Recovery when locked out of MFA, if you've lost your MFA device and
+can't access email [source: it_password_reset.pdf, page 2]: ...
+```
+
+`tests/test_mcp_server.py` drives the server through a real MCP client
+session (in-memory transport), including the path sandbox, and
+`tests/test_agent.py` runs the full question, MCP tool call, cited answer
+path against the live APIs.
+
+### Test with the MCP Inspector
+
+```bash
+# Web UI (opens a browser)
+npx @modelcontextprotocol/inspector .venv/Scripts/python src/mcp_server.py
+
+# CLI mode
+npx @modelcontextprotocol/inspector --cli .venv/Scripts/python src/mcp_server.py --method tools/list
+npx @modelcontextprotocol/inspector --cli .venv/Scripts/python src/mcp_server.py --method tools/call --tool-name search_documents --tool-arg "query=expense deadline"
+```
+
+On macOS or Linux use `.venv/bin/python`. Saved Inspector output is in
+[`docs/evidence/`](docs/evidence/).
+
+### Connect to Claude Desktop
+
+1. Ingest documents first: `python scripts/ingest.py --src data/sample_docs`.
+2. In Claude Desktop open Settings, Developer, Edit Config, and add the
+   server to `claude_desktop_config.json` with absolute paths:
+
+   ```json
+   {
+     "mcpServers": {
+       "rag-knowledge-base": {
+         "command": "C:\\path\\to\\rag-agent-system\\.venv\\Scripts\\python.exe",
+         "args": ["C:\\path\\to\\rag-agent-system\\src\\mcp_server.py"]
+       }
+     }
+   }
+   ```
+
+   On macOS use `"command": "/path/to/rag-agent-system/.venv/bin/python"` and
+   `"args": ["/path/to/rag-agent-system/src/mcp_server.py"]`.
+3. Restart Claude Desktop. The four tools appear in the tools menu. Try:
+   "Search my knowledge base for the expense submission deadline."
+
+The server reads `GOOGLE_API_KEY` from the project's `.env`, so no key goes
+in the Claude Desktop config. With the local Chroma backend, point either
+Claude Desktop or the Streamlit app at the index, not both at once: Chroma
+is not built for two processes writing the same folder. The OpenSearch
+backend does not have this limit.
 
 ---
 
@@ -364,14 +467,15 @@ retrieved sources) and relevance.
 rag-agent-system/
 ├── config.py                  # all settings, read from .env
 ├── src/
+│   ├── mcp_server.py          # MCP server: search, list, get, ingest tools
 │   ├── ingestion/             # loaders + chunker
 │   ├── vectorstore/           # store facade, Chroma + OpenSearch backends
 │   ├── retrieval/             # retriever + citation formatter
-│   ├── agent/                 # Claude agent, tools, prompt, Session
+│   ├── agent/                 # Claude agent, MCP client, prompt, Session
 │   └── pipeline.py            # ingest_file, ingest_directory, sync_directory
 ├── app/                       # Streamlit UI and CLI
 ├── cost_model.py              # monthly cost by usage tier (prints markdown)
-├── scripts/                   # ingest, reindex (--watch), evaluate, measure_tokens
+├── scripts/                   # ingest, reindex, evaluate, measure_tokens, demo_mcp_e2e
 ├── docs/                      # architecture diagram (.mmd + .svg)
 ├── data/sample_docs/          # 4 fictional company documents
 ├── eval/qa_pairs.json

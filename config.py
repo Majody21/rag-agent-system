@@ -30,6 +30,14 @@ def chroma_persist_dir() -> Path:
     return Path(os.getenv("CHROMA_PERSIST_DIR", DEFAULT_CHROMA_DIR))
 
 
+def docs_dir() -> Path:
+    """The only folder the ingest_document MCP tool may read from."""
+    return Path(os.getenv("RAG_DOCS_DIR", DATA_DIR))
+
+
+UPLOADS_SUBDIR = "uploads"  # Streamlit uploads are saved under docs_dir()/uploads
+
+
 # ─── Models ──────────────────────────────────────────────────────────
 AGENT_MODEL = os.getenv("AGENT_MODEL", "claude-opus-5")
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", AGENT_MODEL)

@@ -30,3 +30,6 @@ Thumbs.db
 
 # Re-index manifest (per machine)
 .index_manifest.json
+
+# Files uploaded through the UI
+data/uploads/

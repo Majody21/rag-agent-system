@@ -131,11 +131,8 @@ def similarity_search(query: str, k: int, filters: Optional[Dict[str, Any]] = No
 
 
 def list_sources() -> List[str]:
-    """Distinct `source` filenames currently indexed ([] if the store is empty or unreachable)."""
-    try:
-        return get_backend().list_sources()
-    except Exception:
-        return []
+    """Distinct `source` filenames currently indexed."""
+    return get_backend().list_sources()
 
 
 def get_source_chunks(source: str) -> List[Document]:
