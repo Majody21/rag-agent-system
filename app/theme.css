@@ -213,7 +213,7 @@
 }
 .ka-side-label span { color: var(--ka-mint); }
 .ka-docs { display: grid; gap: 2px; }
-.ka-doc { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; font-size: 0.86rem; color: var(--ka-text); word-break: break-all; }
+.ka-doc { display: flex; align-items: center; gap: 10px; padding: 7px 6px; border-radius: 8px; font-size: 0.8rem; color: var(--ka-text); overflow-wrap: anywhere; }
 .ka-doc:hover { background: var(--ka-raised); }
 .ka-doc b {
   flex-shrink: 0; width: 34px; text-align: center; font-family: var(--ka-mono); font-weight: 500;
