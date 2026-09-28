@@ -65,7 +65,8 @@ flowchart TB
     search_documents
     ingest_document
     list_sources
-    get_document`"]
+    get_document
+    delete_document`"]
 
     subgraph INGEST["Ingestion pipeline"]
         LD["`**Loaders**
@@ -214,6 +215,7 @@ and never imports the retrieval code directly.
 | `list_sources()` | File names currently indexed | Yes |
 | `get_document(source)` | Every chunk of one file, in order | Yes |
 | `ingest_document(path)` | Index or re-index a file inside `data/` | No (MCP hosts and the upload UI only) |
+| `delete_document(source)` | Remove an uploaded file from the index (uploads only) | No (upload expiry in the demo) |
 
 Design choices:
 
@@ -290,7 +292,7 @@ On macOS or Linux use `.venv/bin/python`. Saved Inspector output is in
 
    On macOS use `"command": "/path/to/rag-agent-system/.venv/bin/python"` and
    `"args": ["/path/to/rag-agent-system/src/mcp_server.py"]`.
-3. Restart Claude Desktop. The four tools appear in the tools menu. Try:
+3. Restart Claude Desktop. The server's tools appear in the tools menu. Try:
    "Search my knowledge base for the expense submission deadline."
 
 The server reads `GOOGLE_API_KEY` from the project's `.env`, so no key goes
