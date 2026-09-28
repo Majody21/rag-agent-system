@@ -282,28 +282,55 @@ with st.sidebar:
     )
 
 
-# ─── Main: hero ──────────────────────────────────────────────────────
-st.html(
+# ─── Main ────────────────────────────────────────────────────────────
+PLACEHOLDER = "Ask about company policies, procedures, or documents"
+STATUS_HTML = (
     f"<div class='ka-status'><span class='ka-live'><i class='ka-dot' aria-hidden='true'></i>Online</span>"
     f"<span>{html.escape(AGENT_MODEL)}</span><span>MCP tools</span><span>{backend}</span></div>"
-    f"<h1 class='ka-title'>Ask the <span>knowledge base</span></h1>"
-    f"<p class='ka-sub'>Answers come only from the indexed documents, with the file and page behind every "
-    f"claim. Open the retrieval trace under an answer to see the MCP tool calls.</p>"
 )
-meter_slot = st.empty()
 
 
-def _render_notice() -> None:
-    if DEMO_MODE:
-        meter_slot.html(
-            f"<div class='ka-notice'><span>Public demo on fictional documents for a made-up company.</span>"
-            f"{_meter_html()}</div>"
+def _notice_html() -> str:
+    if not DEMO_MODE:
+        return ""
+    return (
+        f"<div class='ka-notice'><span>Public demo on fictional documents for a made-up company.</span>"
+        f"{_meter_html()}</div>"
+    )
+
+
+# A question typed on the welcome screen (or an example card) is parked in
+# `pending` and the app reruns straight into the conversation layout, so only
+# one chat input exists on screen at a time.
+pending = st.session_state.pop("pending", None)
+
+if not st.session_state.messages and pending is None:
+    # Welcome: everything centered around the input, like a new Claude chat
+    with st.container(key="welcome"):
+        st.html(
+            STATUS_HTML
+            + "<h1 class='ka-title'>Ask the <span>knowledge base</span></h1>"
+            "<p class='ka-sub'>Answers come only from the indexed documents, with the file and page behind "
+            "every claim. Open the retrieval trace under an answer to see the MCP tool calls.</p>"
         )
+        typed = st.chat_input(PLACEHOLDER, key="welcome_input")
+        with st.container(key="examples"):
+            cols = st.columns(len(EXAMPLE_QUESTIONS))
+            clicked = None
+            for col, example in zip(cols, EXAMPLE_QUESTIONS):
+                if col.button(example, use_container_width=True):
+                    clicked = example
+        if DEMO_MODE:
+            st.html(_notice_html())
+    if typed or clicked:
+        st.session_state.pending = typed or clicked
+        st.rerun()
+    st.stop()
 
+# Conversation: compact header, messages, input docked at the bottom
+header_slot = st.empty()
+header_slot.html(f"<div class='ka-convo-head'>{STATUS_HTML}{_notice_html()}</div>")
 
-_render_notice()
-
-# ─── Main: conversation ──────────────────────────────────────────────
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar=USER_AVATAR if msg["role"] == "user" else AGENT_AVATAR):
         if msg["role"] == "user":
@@ -312,18 +339,7 @@ for msg in st.session_state.messages:
             st.markdown(msg["content"])
             _render_answer_meta(msg)
 
-prompt = None
-examples_slot = st.empty()
-if not st.session_state.messages:
-    with examples_slot.container(key="examples"):
-        st.html("<div class='ka-label'>Try a question</div>")
-        cols = st.columns(len(EXAMPLE_QUESTIONS))
-        for col, example in zip(cols, EXAMPLE_QUESTIONS):
-            if col.button(example, use_container_width=True):
-                prompt = example
-prompt = st.chat_input("Ask about company policies, procedures, or documents") or prompt
-if prompt:
-    examples_slot.empty()
+prompt = st.chat_input(PLACEHOLDER, key="dock_input") or pending
 
 if prompt:
     refusal = (
@@ -357,5 +373,4 @@ if prompt:
             }
             _render_answer_meta(msg)
             st.session_state.messages.append(msg)
-
-_render_notice()
+        header_slot.html(f"<div class='ka-convo-head'>{STATUS_HTML}{_notice_html()}</div>")
