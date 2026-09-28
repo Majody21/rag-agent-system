@@ -396,6 +396,59 @@ _Prices checked 2026-09-28. Default agent model: claude-opus-5._
 
 ---
 
+## Live demo
+
+**Demo:** https://abdultaboo-rag-agent.streamlit.app
+
+Runs on Streamlit Community Cloud with the local Chroma backend and four
+fictional sample documents. It uses the same agent, MCP server, and citation
+path as the code in this repo. The first visit after a quiet period can take
+about 30 seconds while the app wakes up. A recorded walkthrough script is in
+[`docs/demo_walkthrough.md`](docs/demo_walkthrough.md).
+
+### Why this setup
+
+An always-on OpenSearch Serverless Classic collection bills a 1 OCU floor,
+about $175 a month, before a single question. For a demo with a few dozen
+questions a day that is more than the Claude traffic itself (see the cost
+model), so the public demo runs on Chroma inside the app. Fixed hosting cost
+is $0; the only variable cost is Claude, about $0.05 per question on
+`claude-opus-5`.
+
+### Guardrails (`DEMO_MODE=true`)
+
+- **Per session:** 10 questions, 5 seconds between questions, 500 characters
+  per question, 2 uploads of up to 300 KB.
+- **Per day:** 150 questions across all visitors.
+- **Hard spend cap:** a monthly spend limit on the Anthropic API key, set in
+  the Anthropic Console, which holds even if the app restarts and its
+  counters reset.
+- **Uploads** are prefixed `upload_`, cannot overwrite the sample documents,
+  and are deleted from the index after 30 minutes through the
+  `delete_document` MCP tool, which can only remove uploads.
+- **Keys stay server side** in Streamlit secrets. The Claude key is not
+  passed to the MCP server process at all.
+
+All limits are configurable in secrets (see
+[`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example)) and
+covered by `tests/test_demo_limits.py`.
+
+### Deploy your own copy (Streamlit Community Cloud)
+
+1. Create a separate Anthropic API key for the demo, and in the Anthropic
+   Console set a monthly spend limit for the workspace (for example $20).
+2. Go to [share.streamlit.io](https://share.streamlit.io), sign in with
+   GitHub, and click **Create app**, then **Deploy a public app from GitHub**.
+3. Repository `Majody21/rag-agent-system`, branch `main`, main file
+   `app/streamlit_app.py`. Under **App URL**, choose
+   `abdultaboo-rag-agent`.
+4. Open **Advanced settings**, pick Python 3.11, and paste the contents of
+   `.streamlit/secrets.toml.example` into **Secrets** with your real keys.
+5. Click **Deploy**. On first start the app launches the MCP server and
+   indexes the sample documents (about a minute).
+
+---
+
 ## Quickstart
 
 ```bash
@@ -473,7 +526,7 @@ rag-agent-system/
 │   ├── retrieval/             # retriever + citation formatter
 │   ├── agent/                 # Claude agent, MCP client, prompt, Session
 │   └── pipeline.py            # ingest_file, ingest_directory, sync_directory
-├── app/                       # Streamlit UI and CLI
+├── app/                       # Streamlit UI, CLI, demo guardrails
 ├── cost_model.py              # monthly cost by usage tier (prints markdown)
 ├── scripts/                   # ingest, reindex, evaluate, measure_tokens, demo_mcp_e2e
 ├── docs/                      # architecture diagram (.mmd + .svg)

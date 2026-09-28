@@ -113,13 +113,6 @@ class Session:
             "I couldn't produce an answer for that request. Try rephrasing it."
         )
 
-        # Update history (keep last N turns)
-        self._history.append(HumanMessage(content=question))
-        self._history.append(AIMessage(content=answer_text))
-        # window measured in turn pairs, so keep 2 * window messages
-        if len(self._history) > 2 * self.window:
-            self._history = self._history[-2 * self.window :]
-
         # Extract sources and tool names from intermediate steps
         tool_calls: List[str] = []
         tool_trace: List[Dict[str, Any]] = []
@@ -129,6 +122,18 @@ class Session:
             tool_trace.append({"tool": getattr(action, "tool", "?"), "input": getattr(action, "tool_input", None)})
             if getattr(action, "tool", None) == "search_documents":
                 sources.extend(_parse_source_tags(_coerce_text(observation)))
+
+        # Update history (keep last N turns). Tool results are not kept, so
+        # note which sources grounded each answer; otherwise on the next turn
+        # the model sees citations with no search behind them and may
+        # wrongly "retract" a correct answer.
+        grounded = sorted({s.get("source", "?") for s in sources})
+        note = f"\n\n(Grounded in tool results from: {', '.join(grounded)})" if grounded else ""
+        self._history.append(HumanMessage(content=question))
+        self._history.append(AIMessage(content=answer_text + note))
+        # window measured in turn pairs, so keep 2 * window messages
+        if len(self._history) > 2 * self.window:
+            self._history = self._history[-2 * self.window :]
 
         return {
             "answer": answer_text,

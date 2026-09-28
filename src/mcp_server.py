@@ -9,6 +9,7 @@ Tools:
     list_sources()                               -> indexed file names
     get_document(source)                         -> every chunk of one file, in order
     ingest_document(path)                        -> index a file under RAG_DOCS_DIR
+    delete_document(source)                      -> remove an uploaded file from the index
 
 This process is the single owner of the vector store: the chat agent, the
 Streamlit upload, and any MCP host all reach the index through these tools.
@@ -31,7 +32,7 @@ import config  # noqa: E402
 from src.ingestion.loaders import _LOADERS  # noqa: E402
 from src.pipeline import ingest_file  # noqa: E402
 from src.retrieval import format_sources, retrieve  # noqa: E402
-from src.vectorstore import get_source_chunks  # noqa: E402
+from src.vectorstore import delete_source, get_source_chunks  # noqa: E402
 from src.vectorstore import list_sources as _list_sources  # noqa: E402
 
 mcp = FastMCP(
@@ -113,6 +114,25 @@ def ingest_document(path: str) -> str:
     resolved = _resolve_allowed(path)
     result = ingest_file(resolved)
     return f"Ingested {resolved.name}: {result['chunks']} chunks indexed."
+
+
+@mcp.tool()
+def delete_document(source: str) -> str:
+    """Remove an uploaded document from the index and delete its file.
+
+    Only documents in the uploads folder can be removed; the curated
+    documents cannot be deleted through this tool.
+
+    Args:
+        source: File name as shown by list_sources, e.g. "upload_notes.md".
+    """
+    uploads = (config.docs_dir() / config.UPLOADS_SUBDIR).resolve()
+    target = (uploads / Path(source).name).resolve()
+    if not target.is_relative_to(uploads) or not target.is_file():
+        raise ValueError(f"'{source}' is not an uploaded document.")
+    removed = delete_source(target.name)
+    target.unlink()
+    return f"Deleted {target.name}: {removed} chunks removed."
 
 
 if __name__ == "__main__":

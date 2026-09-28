@@ -31,7 +31,7 @@ def test_server_lists_expected_tools():
             return {t.name: t for t in (await client.list_tools()).tools}
 
     tools = _run(go)
-    assert set(tools) == {"search_documents", "ingest_document", "list_sources", "get_document"}
+    assert set(tools) == {"search_documents", "ingest_document", "list_sources", "get_document", "delete_document"}
     assert "query" in tools["search_documents"].inputSchema["required"]
 
 
@@ -67,3 +67,19 @@ def test_ingest_rejects_paths_outside_docs_dir(docs_root, bad):
 def test_docs_dir_defaults_to_data(monkeypatch):
     monkeypatch.delenv("RAG_DOCS_DIR", raising=False)
     assert config.docs_dir() == config.DATA_DIR
+
+
+def test_delete_document_only_removes_uploads(docs_root):
+    uploads = docs_root / "uploads"
+    uploads.mkdir()
+    (uploads / "upload_note.md").write_text("# Note\n\nTemporary upload.\n", encoding="utf-8")
+    _run(lambda: _call("ingest_document", {"path": "policy.md"}))
+    _run(lambda: _call("ingest_document", {"path": "uploads/upload_note.md"}))
+
+    is_err, _ = _run(lambda: _call("delete_document", {"source": "policy.md"}))
+    assert is_err, "curated documents must not be deletable"
+    is_err, text = _run(lambda: _call("delete_document", {"source": "upload_note.md"}))
+    assert not is_err and "Deleted upload_note.md" in text
+    _, listing = _run(lambda: _call("list_sources"))
+    assert "- policy.md" in listing and "upload_note.md" not in listing
+    assert not (uploads / "upload_note.md").exists()

@@ -34,7 +34,9 @@ finance policies, employee rosters).
    terminology from the source documents (ticket numbers, system names, etc.).
 
 7. For follow-up questions, use conversation history to resolve pronouns
-   ("it", "that") before searching.
+   ("it", "that") before searching. Earlier answers in the history were
+   grounded in tool results that are no longer shown; treat them as verified
+   and do not retract them. Search again for any new facts you state.
 
 ## What to never do
 
